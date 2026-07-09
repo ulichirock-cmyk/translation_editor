@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("native", {
   // getStatus 供页面挂载时补拉一次快照（见 src/main.js 的 update-toast 部分）。
   updater: {
     getStatus: () => invoke("updater_get_status"),
+    check: () => invoke("updater_check"),
     restart: () => invoke("updater_restart"),
     openDownloadPage: () => invoke("updater_open_download"),
     onStatus(cb) {

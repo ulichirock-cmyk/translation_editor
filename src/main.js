@@ -240,7 +240,10 @@ async function syncFromC() {
 // 语言、CSV 导入这些结构性操作以前只改 XML 不触发这一步，导致 multilang.c 长期滞后
 // 于 XML、横幅也不会报警——这是工具自己在制造"文件对不上"，所以每个改 XML 的操作
 // 成功之后都要走这里，而不是只有"保存"按钮才走。
-async function regenAndReport(afterLabel) {
+// quiet：保存这类高频操作只要一句"成功"，缺翻译提示折叠成状态栏里的一个数字，
+// 不弹清单打断操作；结构性操作（增删条目/语言、导入）保留完整清单弹窗。
+// 生成失败无论哪种模式都必须显式报错。
+async function regenAndReport(afterLabel, opts = {}) {
   let summary;
   try {
     summary = await invoke("regen_multilang", { path: currentPath });
@@ -250,9 +253,13 @@ async function regenAndReport(afterLabel) {
     return;
   }
   const [headline, ...warnLines] = summary.split("\n");
-  setOk(`${afterLabel}，已重新生成 multilang（${headline}）`);
-  if (warnLines.length) {
-    showResultModal("multilang 生成警告", `${afterLabel}成功，但生成时有 ${warnLines.length} 条提示：`, warnLines);
+  if (opts.quiet) {
+    setOk(warnLines.length ? `${afterLabel}成功（${warnLines.length} 条缺翻译提示）` : `${afterLabel}成功`);
+  } else {
+    setOk(`${afterLabel}，已重新生成 multilang（${headline}）`);
+    if (warnLines.length) {
+      showResultModal("multilang 生成警告", `${afterLabel}成功，但生成时有 ${warnLines.length} 条提示：`, warnLines);
+    }
   }
   await checkConsistency();
 }
@@ -836,7 +843,7 @@ async function saveAll() {
   try {
     lastKnownMtime = await invoke("get_file_mtime", { path: currentPath });
   } catch (e) { /* 拿不到就算了，下次轮询顶多多提示一次 */ }
-  await regenAndReport("保存");
+  await regenAndReport("保存", { quiet: true });
   updateSaveButton();
 }
 
@@ -1447,6 +1454,13 @@ document.addEventListener("keydown", e => {
   const onStatus = s => { if (s && s.version) lastVersion = s.version; render(s); };
   updater.getStatus().then(s => { if (s) onStatus(s); }).catch(() => {});
   updater.onStatus(onStatus);
+
+  // 手动检查更新：结果（检查中/已是最新/发现新版/出错）经 updater:status 推回提示条，
+  // 按钮本身不等待。开发模式（未打包）下主进程照样能查，只是不会自动轮询。
+  const checkBtn = document.getElementById("btn-check-update");
+  if (checkBtn && updater.check) {
+    checkBtn.addEventListener("click", () => { updater.check().catch(() => {}); });
+  }
 })();
 
 startup().catch(console.error);
