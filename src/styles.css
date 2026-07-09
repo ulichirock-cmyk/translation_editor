@@ -118,3 +118,22 @@ tbody tr.dup-key td.key-cell .key-text { color: #b91c1c; }
 #open-screen button:hover { background: #1d4ed8; }
 #app-root { display: none; height: 100vh; flex-direction: column; }
 #app-root.visible { display: flex; }
+
+/* 自动更新提示条：右下角悬浮，不遮内容、不抢焦点、不弹模态框（状态来自主进程 IPC 推送） */
+#update-toast { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: none; align-items: center; gap: 10px; max-width: 420px; padding: 10px 14px; background: #1f2937; color: #f9fafb; font-size: 13px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+#update-toast.visible { display: flex; }
+#update-toast .update-text { flex: 1; min-width: 0; }
+#update-toast .update-pct { margin-left: 6px; color: #93c5fd; font-variant-numeric: tabular-nums; }
+#update-toast .update-bar { flex-basis: 100%; order: 9; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.2); overflow: hidden; }
+#update-toast .update-bar-fill { display: block; height: 100%; background: #60a5fa; transition: width 0.2s; }
+#update-toast.downloading { flex-wrap: wrap; }
+#update-toast .update-dot { width: 8px; height: 8px; border-radius: 50%; background: #60a5fa; flex: none; }
+#update-toast .update-dot.ok { background: #34d399; }
+#update-toast .update-dot.err { background: #f87171; }
+#update-toast .update-spinner { width: 12px; height: 12px; flex: none; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: update-spin 0.8s linear infinite; }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+#update-toast button.update-action { padding: 4px 12px; border-radius: 4px; border: none; background: #2563eb; color: #fff; font-size: 12.5px; cursor: pointer; flex: none; }
+#update-toast button.update-action:hover { background: #1d4ed8; }
+#update-toast button.update-action:disabled { opacity: 0.6; cursor: default; }
+#update-toast button.update-close { padding: 0 4px; border: none; background: none; color: #9ca3af; font-size: 16px; line-height: 1; cursor: pointer; flex: none; }
+#update-toast button.update-close:hover { color: #fff; }

@@ -1216,4 +1216,75 @@ document.addEventListener("keydown", e => {
 // 关窗保护由主进程负责：脏格状态经 window.native.setDirty 同步给主进程，
 // 主进程在 win.on('close') 里若有脏数据则拦下并弹原生确认框（见 electron/main.js）。
 
+// ---- 自动更新提示条（右下角悬浮，移植自 raywrite 的 UpdateBanner.vue）----
+// 状态全部来自主进程 IPC 推送（electron/updater.js 的 broadcast），这里只负责展示：
+// 发现新版自动后台下载并显示进度；下载就绪后给「立即重启」按钮；「稍后」只隐藏提示，
+// 已下载好的更新仍会在下次退出应用时自动落地。
+(function initUpdateToast() {
+  const updater = window.native.updater;
+  if (!updater) return;
+  const toastEl = document.getElementById("update-toast");
+  let restarting = false;
+  let lastVersion = "";
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  function render(status) {
+    const phase = (status && status.phase) || "idle";
+    toastEl.className = phase === "idle" ? "" : "visible " + phase;
+    if (phase === "idle") { toastEl.innerHTML = ""; return; }
+    const v = esc(status.version || "");
+    let html = "";
+    if (phase === "checking") {
+      html = `<span class="update-spinner"></span><span class="update-text">正在检查更新…</span>`;
+    } else if (phase === "downloading") {
+      const pct = status.progress != null ? Math.round(status.progress * 100) : null;
+      html = `<span class="update-spinner"></span>` +
+        `<span class="update-text">正在下载更新 v${v}` +
+        (pct != null ? `<span class="update-pct">${pct}%</span>` : "") + `</span>` +
+        `<span class="update-bar"><span class="update-bar-fill" style="width:${(status.progress || 0) * 100}%"></span></span>`;
+    } else if (phase === "ready") {
+      html = `<span class="update-dot"></span><span class="update-text">新版本 v${v} 已就绪</span>` +
+        `<button type="button" class="update-action" data-act="restart"${restarting ? " disabled" : ""}>${restarting ? "重启中…" : "立即重启"}</button>` +
+        `<button type="button" class="update-close" data-act="dismiss" title="稍后">×</button>`;
+    } else if (phase === "manual") {
+      html = `<span class="update-dot"></span><span class="update-text">新版本 v${v} 可用</span>` +
+        `<button type="button" class="update-action" data-act="download">打开下载页</button>` +
+        `<button type="button" class="update-close" data-act="dismiss" title="稍后">×</button>`;
+    } else if (phase === "up-to-date") {
+      html = `<span class="update-dot ok"></span><span class="update-text">已是最新版本</span>`;
+    } else if (phase === "error") {
+      html = `<span class="update-dot err"></span><span class="update-text">${esc(status.message || "更新出错")}</span>` +
+        `<button type="button" class="update-close" data-act="dismiss" title="关闭">×</button>`;
+    }
+    toastEl.innerHTML = html;
+  }
+
+  toastEl.addEventListener("click", e => {
+    const act = e.target && e.target.dataset ? e.target.dataset.act : null;
+    if (!act) return;
+    if (act === "dismiss") {
+      // 「稍后」：仅隐藏本地提示，已下载好的更新仍会在下次退出应用时自动落地
+      render({ phase: "idle" });
+    } else if (act === "download") {
+      updater.openDownloadPage().catch(() => {});
+    } else if (act === "restart") {
+      if (restarting) return;
+      restarting = true;
+      render({ phase: "ready", version: lastVersion });
+      updater.restart().catch(() => {});
+      // 关窗保护可能拦下重启（用户在确认框点了取消）：几秒后恢复按钮可再点
+      setTimeout(() => {
+        if (restarting) { restarting = false; render({ phase: "ready", version: lastVersion }); }
+      }, 4000);
+    }
+  });
+
+  const onStatus = s => { if (s && s.version) lastVersion = s.version; render(s); };
+  updater.getStatus().then(s => { if (s) onStatus(s); }).catch(() => {});
+  updater.onStatus(onStatus);
+})();
+
 startup().catch(console.error);

@@ -7,7 +7,7 @@
 ```bash
 npm install
 npm start            # 启动开发窗口（前端无构建步骤）
-npm run dist         # 产出单文件可执行程序 translation_editor_win.exe（dist/）
+npm run dist         # 产出单文件可执行程序 translation_editor_win-<版本号>.exe（dist/）
 ```
 
 Node 后端单元测试（覆盖 XML 改写、语言/条目增删、multilang.h/.c 生成、CSV 导入导出）：
@@ -18,6 +18,17 @@ npm test             # 等价于 node --test test/
 
 > 若 `npm install` 时 Electron 二进制下载失败，可用镜像重试：
 > `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm install`
+
+## 发版与自动更新
+
+发新版：把 `package.json` 的 `version` 改好，然后二选一触发 `.github/workflows/release.yml`：
+
+1. 推 tag：`git tag vX.Y.Z && git push origin vX.Y.Z`
+2. 手动运行：GitHub 网页/App 的 Actions → release → Run workflow（手机也能点），版本号自动取 `package.json` 推导成 `v<version>`
+
+工作流在 `windows-latest` 上跑 `npm test` + `electron-builder`，把 exe 发布成 GitHub Release（自动生成 release notes）。
+
+已打包的应用启动后会自动检查 GitHub latest release（`electron/updater.js`，移植自 [raywrite](https://github.com/ulichirock-cmyk/raywrite)）：发现新版直接后台下载，右下角悬浮条展示进度，下载就绪后可点「立即重启」立即升级；不理会的话，更新也会在下次退出应用时自动落地。替换始终写回原 exe 路径，快捷方式不受影响。开发模式（`npm start`）不检查更新。
 
 ## 架构
 
