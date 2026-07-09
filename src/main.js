@@ -357,6 +357,39 @@ async function pickAndLoad() {
   }
 }
 
+// 开屏「新建」：选保存位置 → 生成模板 XML（自带 zh/en + 示例条目）+ 同目录的
+// gen_multilang.py 标记 + 配套 multilang.h/.c，然后直接进入编辑。
+// 已有文件不会被覆盖（后端拒绝），错误就地显示在引导页文案里。
+async function createNewXmlProject() {
+  let target;
+  try {
+    target = await invoke("pick_new_xml_save_path");
+  } catch (err) {
+    showOpenScreen("新建失败：" + errMsg(err));
+    return;
+  }
+  if (!target) return;
+  try {
+    await invoke("create_new_xml", { path: target });
+  } catch (err) {
+    showOpenScreen("新建失败：" + errMsg(err));
+    return;
+  }
+  currentPath = target;
+  try {
+    await invoke("remember_path", { path: currentPath });
+  } catch (e) { /* 记住路径失败不影响本次使用 */ }
+  showApp();
+  try {
+    await loadData();
+    await checkConsistency();
+    startMtimePolling();
+    setOk("已新建 translations.xml 并生成 multilang.h/.c");
+  } catch (e) {
+    showOpenScreen("新建后加载失败：" + errMsg(e));
+  }
+}
+
 async function startup() {
   let initial = null;
   try {
@@ -1372,6 +1405,7 @@ document.getElementById("btn-find-replace").addEventListener("click", findReplac
 document.getElementById("btn-save").addEventListener("click", saveAll);
 document.getElementById("btn-open").addEventListener("click", pickAndLoad);
 document.getElementById("btn-open-initial").addEventListener("click", pickAndLoad);
+document.getElementById("btn-new-initial").addEventListener("click", createNewXmlProject);
 document.getElementById("btn-export-csv").addEventListener("click", exportCsv);
 document.getElementById("btn-import-csv").addEventListener("click", importCsv);
 

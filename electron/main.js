@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const xmlStore = require("./xml_store");
 const cSync = require("./c_sync");
+const newXml = require("./new_xml");
 const updater = require("./updater");
 
 const isDev = !app.isPackaged;
@@ -76,6 +77,18 @@ function registerHandlers() {
     saveConfig(cfg);
     return null;
   });
+
+  handle("pick_new_xml_save_path", async () => {
+    const r = await dialog.showSaveDialog(mainWindow, {
+      title: "新建 translations.xml",
+      defaultPath: "translations.xml",
+      filters: [{ name: "translations.xml", extensions: ["xml"] }],
+    });
+    if (r.canceled || !r.filePath) return null;
+    return r.filePath;
+  });
+
+  handle("create_new_xml", ({ path: p }) => newXml.createNewXml(p));
 
   handle("pick_xml_file", async () => {
     const r = await dialog.showOpenDialog(mainWindow, {
