@@ -199,8 +199,40 @@ async function checkConsistency() {
       .filter(Boolean).join(" / ");
     setBanner("multilangInconsistency", {
       text: `${which} 与当前 translations.xml 不一致（可能有改动未同步），建议核对后再编辑。目录：${report.dir}`,
+      // .c 有出入时提供反向同步：把 multilang.c 里的文本写回 XML（.h 只含语言宏，
+      // 没有可回收的文本，单纯 .h 不一致重新保存一次即可对齐）
+      ...(report.c_matches ? {} : {
+        actionLabel: "从 multilang.c 同步到 XML",
+        onAction: syncFromC,
+      }),
     });
   }
+}
+
+// 反向同步 multilang.c → translations.xml（只增改不删除，语义同 CSV 导入）。
+// 同步成功后重新加载表格，并以同步后的 XML 为准重新生成 multilang.h/.c——
+// 两边就此对齐，一致性横幅随之消失。
+async function syncFromC() {
+  let message = "将把 multilang.c 中的文本写回 translations.xml（更新不同的格、补充缺失的 key，不删除任何内容），随后表格会重新加载。确定继续吗？";
+  if (dirtyCount() > 0) {
+    message += "\n\n当前有未保存的修改，重新加载后这些修改将会丢失。";
+  }
+  const ok = await confirmDialog("从 multilang.c 同步", message);
+  if (!ok) return;
+  let report;
+  try {
+    report = await invoke("sync_from_c", { path: currentPath });
+  } catch (err) {
+    setFailed(errMsg(err));
+    return;
+  }
+  await loadData();
+  const summary = `同步完成：更新 ${report.updated} 处，新增 ${report.added} 条` +
+    (report.warnings.length ? `，${report.warnings.length} 条提示` : "");
+  if (report.warnings.length) {
+    showResultModal("从 multilang.c 同步完成", summary, report.warnings);
+  }
+  await regenAndReport(summary);
 }
 
 // 统一入口：写完 XML 之后调它——重新生成 multilang.h/.c、把结果（含生成过程中的

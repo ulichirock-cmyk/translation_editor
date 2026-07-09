@@ -4,6 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const xmlStore = require("./xml_store");
+const cSync = require("./c_sync");
 const updater = require("./updater");
 
 const isDev = !app.isPackaged;
@@ -119,6 +120,8 @@ function registerHandlers() {
 
   handle("check_multilang_consistency", ({ path: p }) =>
     xmlStore.checkMultilangConsistency(p));
+
+  handle("sync_from_c", ({ path: p }) => cSync.syncFromC(p));
 
   handle("get_file_mtime", ({ path: p }) => xmlStore.fileMtimeMillis(p));
 
