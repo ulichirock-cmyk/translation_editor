@@ -11,8 +11,10 @@ Electron rewrite of `translation_editor` (originally Python + single-file HTML +
 ```bash
 npm install
 npm start            # launch dev window (frontend has no build step — see Architecture)
-npm run dist         # produce translation_editor_win.exe under dist/
+npm run dist         # produce translation_editor_win-<version>.exe under dist/
 ```
+
+Releases: bump `version` in `package.json`, then either push a `v*` tag or run the `release` workflow manually (`.github/workflows/release.yml`) — it builds the exe on `windows-latest` and publishes a GitHub Release. Packaged apps self-update from the latest release (see the updater note under Architecture).
 
 Node backend tests (all logic lives in `xml_store.js`; this is the test suite that matters):
 
@@ -43,6 +45,8 @@ There is no frontend build/lint step — `src/` is plain JS/HTML/CSS loaded as-i
 **Window-close protection lives in the main process.** The renderer syncs its dirty-cell state to the main process via `window.native.setDirty(...)` (called from `updateSaveButton`). On `win.on('close')`, if dirty, the main process `preventDefault()`s and shows a native OkCancel dialog; confirming calls `win.destroy()` (guarded by a `forceClose` flag so the re-entrant close doesn't loop). This replaces the Tauri version's `onCloseRequested`.
 
 **No auto-save, no `window.confirm()`.** Cell edits only flag `.dirty` and flush on the 保存 button / Ctrl+S / Ctrl+Enter (`saveAll`), which also triggers `regen_multilang` afterward. Destructive actions (delete entry/language) and the close/reload guards go through the `confirm_dialog` IPC command (native OS OkCancel dialog) instead of the browser's `window.confirm()`.
+
+**Auto-update (`electron/updater.js`) is a portable-exe self-replacer ported from `ulichirock-cmyk/raywrite`**, not electron-updater (which doesn't support the portable target). Packaged builds poll the GitHub latest release, background-download the new exe next to the current one, and stage a replace manifest (`translation_editor-update.json`); the swap happens on quit via an explorer-proxied handoff to the new exe (`runUpdateHandoff()` runs at the very top of `electron/main.js`, before the single-instance lock — a handoff process must never enter normal startup). Status is pushed to the renderer over the `updater:status` channel and shown in the `#update-toast` floating bar (bottom-right, in `src/main.js`) — never a native modal. `updater_restart` deliberately goes through `mainWindow.close()` so the dirty-data close guard still applies. Dev mode (`!app.isPackaged`) never checks.
 
 **Three independent watchdogs feed the same `#banner`**, keyed so they don't clobber each other: multilang/XML consistency check on load, duplicate-key detection on load (duplicate keys break the regex-based write path, which only ever matches the *first* same-named `<entry>`), and mtime polling every 4s for external file changes (e.g. `svn update`). All three only warn — they never auto-fix or auto-reload.
 

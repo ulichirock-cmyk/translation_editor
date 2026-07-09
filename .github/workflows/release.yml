@@ -1,0 +1,44 @@
+# 构建并发布 Windows portable exe 到 GitHub Release（参照 raywrite 的同名工作流）。
+# 两种触发方式：
+#   1) 推 v* tag：git tag vX.Y.Z && git push origin vX.Y.Z（老流程，走命令行）
+#   2) 手动运行：GitHub 网页/App 的 Actions → release → Run workflow（手机也能点），
+#      版本号从 package.json 推导成 v<version>，action-gh-release 会顺手建同名 tag
+# 发新版只需先把 package.json 的 version 改好，再选其一触发即可；
+# 应用内的 updater（electron/updater.js）会查 latest release 自动下载升级。
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # --publish never：发布交给下面的 action，别让 electron-builder 在 tag CI 上自作主张
+      - run: npm run dist -- --publish never
+      # 手动触发没有 tag ref，用 package.json 版本号推导 v<version>；tag 触发则原样用该 tag
+      - id: tag
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "name=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          files: dist/*.exe
+          generate_release_notes: true

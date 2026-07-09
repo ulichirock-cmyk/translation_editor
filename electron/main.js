@@ -4,6 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const xmlStore = require("./xml_store");
+const updater = require("./updater");
 
 const isDev = !app.isPackaged;
 
@@ -143,6 +144,19 @@ function registerHandlers() {
 
   handle("import_csv", ({ path: p, csvPath }) => xmlStore.importCsv(p, csvPath));
 
+  // 自动更新：状态经 IPC 推给页面右下角提示条（见 src/main.js 的 update-toast 部分），
+  // 不用原生 dialog——那会打断用户正在做的事。
+  handle("updater_get_status", () => updater.getUpdaterStatus());
+  handle("updater_open_download", () => updater.openDownloadPage());
+  // 「立即重启」：走 mainWindow.close() 而不是直接 app.quit()，让关窗保护照常拦截
+  // 未保存的脏数据；窗口真正关掉后 window-all-closed → app.quit()，
+  // updater 在 before-quit 里拉起已暂存的新版 exe 完成替换。
+  handle("updater_restart", () => {
+    if (mainWindow) mainWindow.close();
+    else app.quit();
+    return null;
+  });
+
   ipcMain.on("set_dirty", (_event, dirty) => {
     hasDirtyData = !!dirty;
   });
@@ -200,8 +214,11 @@ function createWindow() {
   });
 }
 
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
+// 更新接力：若本进程是刚下载的新版 exe 且有替换协议，只做替换后自退，不进正常启动
+// （替换完成后 updater 内部自行 app.exit()）。
+if (updater.runUpdateHandoff()) {
+  // 什么都不做，等 updater 完成替换并退出
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
@@ -214,6 +231,8 @@ if (!gotLock) {
   app.whenReady().then(() => {
     registerHandlers();
     createWindow();
+    // 打包形态下启动 5s 后静默检查一次更新 + 每 6h 一次（开发模式不检查）
+    updater.initUpdater({ getWin: () => mainWindow });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
