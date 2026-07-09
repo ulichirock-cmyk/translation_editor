@@ -361,18 +361,25 @@ async function pickAndLoad() {
 // gen_multilang.py 标记 + 配套 multilang.h/.c，然后直接进入编辑。
 // 已有文件不会被覆盖（后端拒绝），错误就地显示在引导页文案里。
 async function createNewXmlProject() {
+  // 也可以从主界面的「新建…」按钮进入：错误就地报在状态点上，别把编辑界面切回引导页
+  const inApp = appRoot.classList.contains("visible");
+  const fail = (msg) => { if (inApp) setFailed(msg); else showOpenScreen(msg); };
+  if (inApp && dirtyCount() > 0) {
+    const ok = await confirmDialog("未保存的修改", "当前有未保存的修改，新建会切换到新文件，未保存的修改将会丢失，确定继续吗？");
+    if (!ok) return;
+  }
   let target;
   try {
     target = await invoke("pick_new_xml_save_path");
   } catch (err) {
-    showOpenScreen("新建失败：" + errMsg(err));
+    fail("新建失败：" + errMsg(err));
     return;
   }
   if (!target) return;
   try {
     await invoke("create_new_xml", { path: target });
   } catch (err) {
-    showOpenScreen("新建失败：" + errMsg(err));
+    fail("新建失败：" + errMsg(err));
     return;
   }
   currentPath = target;
@@ -1406,6 +1413,7 @@ document.getElementById("btn-save").addEventListener("click", saveAll);
 document.getElementById("btn-open").addEventListener("click", pickAndLoad);
 document.getElementById("btn-open-initial").addEventListener("click", pickAndLoad);
 document.getElementById("btn-new-initial").addEventListener("click", createNewXmlProject);
+document.getElementById("btn-new").addEventListener("click", createNewXmlProject);
 document.getElementById("btn-export-csv").addEventListener("click", exportCsv);
 document.getElementById("btn-import-csv").addEventListener("click", importCsv);
 
