@@ -361,9 +361,19 @@ async function pickAndLoad() {
 // gen_multilang.py 标记 + 配套 multilang.h/.c，然后直接进入编辑。
 // 已有文件不会被覆盖（后端拒绝），错误就地显示在引导页文案里。
 async function createNewXmlProject() {
-  // 也可以从主界面的「新建…」按钮进入：错误就地报在状态点上，别把编辑界面切回引导页
+  // 也可以从主界面的「新建…」按钮进入：错误报在顶部告警条（状态点的 tooltip 太隐蔽），
+  // 别把编辑界面切回引导页
   const inApp = appRoot.classList.contains("visible");
-  const fail = (msg) => { if (inApp) setFailed(msg); else showOpenScreen(msg); };
+  const fail = (msg) => {
+    if (!inApp) { showOpenScreen(msg); return; }
+    setFailed(msg);
+    setBanner("newXmlError", {
+      text: msg,
+      actionLabel: "知道了",
+      onAction: () => setBanner("newXmlError", null),
+    });
+  };
+  if (inApp) setBanner("newXmlError", null);
   if (inApp && dirtyCount() > 0) {
     const ok = await confirmDialog("未保存的修改", "当前有未保存的修改，新建会切换到新文件，未保存的修改将会丢失，确定继续吗？");
     if (!ok) return;
