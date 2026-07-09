@@ -1437,6 +1437,7 @@ document.addEventListener("keydown", e => {
   const toastEl = document.getElementById("update-toast");
   let restarting = false;
   let lastVersion = "";
+  let lastPhase = "";
 
   function esc(s) {
     return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -1444,18 +1445,33 @@ document.addEventListener("keydown", e => {
 
   function render(status) {
     const phase = (status && status.phase) || "idle";
+    const prevPhase = lastPhase;
+    lastPhase = phase;
     toastEl.className = phase === "idle" ? "" : "visible " + phase;
     if (phase === "idle") { toastEl.innerHTML = ""; return; }
     const v = esc(status.version || "");
+    if (phase === "downloading") {
+      // 下载中进度推送很频繁：只就地改百分比和进度条，不重建 innerHTML，
+      // 否则 spinner 元素每次被重新创建，转圈动画会不断从头开始
+      const pct = status.progress != null ? Math.round(status.progress * 100) : null;
+      if (prevPhase === "downloading") {
+        const pctEl = toastEl.querySelector(".update-pct");
+        const fillEl = toastEl.querySelector(".update-bar-fill");
+        if (pctEl && fillEl) {
+          pctEl.textContent = pct != null ? pct + "%" : "";
+          fillEl.style.width = ((status.progress || 0) * 100) + "%";
+          return;
+        }
+      }
+      toastEl.innerHTML = `<span class="update-spinner"></span>` +
+        `<span class="update-text">正在下载更新 v${v}` +
+        `<span class="update-pct">${pct != null ? pct + "%" : ""}</span></span>` +
+        `<span class="update-bar"><span class="update-bar-fill" style="width:${(status.progress || 0) * 100}%"></span></span>`;
+      return;
+    }
     let html = "";
     if (phase === "checking") {
       html = `<span class="update-spinner"></span><span class="update-text">正在检查更新…</span>`;
-    } else if (phase === "downloading") {
-      const pct = status.progress != null ? Math.round(status.progress * 100) : null;
-      html = `<span class="update-spinner"></span>` +
-        `<span class="update-text">正在下载更新 v${v}` +
-        (pct != null ? `<span class="update-pct">${pct}%</span>` : "") + `</span>` +
-        `<span class="update-bar"><span class="update-bar-fill" style="width:${(status.progress || 0) * 100}%"></span></span>`;
     } else if (phase === "ready") {
       html = `<span class="update-dot"></span><span class="update-text">新版本 v${v} 已就绪</span>` +
         `<button type="button" class="update-action" data-act="restart"${restarting ? " disabled" : ""}>${restarting ? "重启中…" : "立即重启"}</button>` +
