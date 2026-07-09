@@ -2,8 +2,7 @@
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif; font-size: 14px; }
 /* 头部与表格统一浅色主题（原生窗口标题栏由主进程 nativeTheme.themeSource='light' 保持一致） */
 header { flex: none; z-index: 5; background: #f9fafb; color: #1f2937; border-bottom: 1px solid #d1d5db; padding: 10px 16px; display: flex; align-items: center; gap: 12px; }
-header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-header .meta { font-size: 12px; color: #6b7280; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header .meta { font-size: 12px; color: #6b7280; max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 header .right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
 header input[type="text"] { padding: 5px 8px; border-radius: 4px; border: 1px solid #d1d5db; background: #fff; color: #111827; min-width: 220px; font-size: 13px; }
 header input[type="text"]::placeholder { color: #9ca3af; }
