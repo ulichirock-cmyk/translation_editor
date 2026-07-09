@@ -1,0 +1,32 @@
+{
+  "name": "translation-editor-electron",
+  "version": "0.1.0",
+  "description": "多国语言编辑器 - Electron 版",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
+    "dist": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.6"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.translationeditor.editor",
+    "productName": "多国语言编辑器",
+    "files": [
+      "electron/**",
+      "src/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.ico",
+      "artifactName": "translation_editor_win.exe"
+    }
+  }
+}

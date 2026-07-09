@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="styles.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多国语言编辑器</title>
+</head>
+<body>
+
+<div id="open-screen">
+  <p id="open-screen-msg">尚未选择 translations.xml 文件</p>
+  <button id="btn-open-initial" type="button">选择 translations.xml…</button>
+</div>
+
+<div id="app-root">
+  <header>
+    <h1>多国语言编辑器</h1>
+    <span class="meta" id="path-display" title=""></span>
+    <div class="right">
+      <button id="btn-open" type="button">打开…</button>
+      <button id="btn-export-csv" type="button">导出 CSV</button>
+      <button id="btn-import-csv" type="button">导入 CSV</button>
+      <button id="btn-add-entry" type="button">+ 新增条目</button>
+      <button id="btn-add-lang" type="button">+ 新增语言</button>
+      <button id="btn-find-replace" type="button">查找替换</button>
+      <button id="btn-save" type="button" disabled title="Ctrl+S">保存</button>
+      <input type="text" id="filter" placeholder="过滤 key / 任意语言文本…" autocomplete="off">
+      <span id="status" title=""></span>
+    </div>
+  </header>
+
+  <div id="banner"></div>
+
+  <div class="table-wrap">
+    <table id="grid">
+      <thead><tr id="head-row"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+    <div class="empty-hint" id="empty" style="display:none">无匹配条目</div>
+  </div>
+</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
