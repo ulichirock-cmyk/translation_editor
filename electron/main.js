@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu, nativeTheme } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const xmlStore = require("./xml_store");
@@ -238,6 +238,8 @@ if (updater.runUpdateHandoff()) {
   });
 
   app.whenReady().then(() => {
+    // 界面是纯浅色主题：原生窗口标题栏也强制浅色，避免系统深色模式下黑白拼接
+    nativeTheme.themeSource = "light";
     registerHandlers();
     createWindow();
     // 打包形态下启动 5s 后静默检查一次更新 + 每 6h 一次（开发模式不检查）
