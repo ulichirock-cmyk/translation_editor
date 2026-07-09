@@ -1009,6 +1009,9 @@ async function addEntry() {
     { name: "key", label: "Key（唯一标识）", placeholder: "例如 NEW_LABEL" },
   ], async (vals) => {
     if (!vals.key) return "key 不能为空";
+    // 固件的 multilang_get() 按字符串比对 key：纯数字 key 会和运行时经过 tr()
+    // 的数字文本（车速、里程等读数）撞上，把数字错误地"翻译"掉，所以直接禁止
+    if (/^[\d ]+$/.test(vals.key)) return "key 不能是纯数字：固件里 tr() 按 key 字符串匹配，纯数字 key 会和运行时的数字文本（如车速、里程读数）冲突。请加个字母前缀，例如 NUM_" + vals.key.trim().replace(/ /g, "_") + "。";
     try {
       await invoke("add_entry", { path: currentPath, key: vals.key, values: {} });
     } catch (err) {
