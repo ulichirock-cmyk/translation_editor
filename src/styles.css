@@ -30,13 +30,18 @@ thead th { position: sticky; top: 0; background: #f3f4f6; border-bottom: 2px sol
 thead th.key-col { left: 0; z-index: 3; background: #e5e7eb; }
 tbody td { border-bottom: 1px solid #e5e7eb; padding: 0; vertical-align: top; overflow: hidden; }
 tbody td.key-cell { position: sticky; left: 0; background: #f9fafb; padding: 8px 10px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: #374151; white-space: nowrap; border-right: 1px solid #d1d5db; z-index: 1; vertical-align: middle; }
-tbody tr:nth-child(even) td.key-cell { background: #f3f4f6; }
+tbody tr.even td.key-cell { background: #f3f4f6; }
 
-/* Alternating row + column tints. The first lang cell is td:nth-child(2). */
-tbody tr:nth-child(odd)  td.lang-cell:nth-child(odd)  { background: #fafbfd; }
-tbody tr:nth-child(odd)  td.lang-cell:nth-child(even) { background: #ffffff; }
-tbody tr:nth-child(even) td.lang-cell:nth-child(odd) { background: #eef0f4; }
-tbody tr:nth-child(even) td.lang-cell:nth-child(even) { background: #f4f6f9; }
+/* Alternating row + column tints. The first lang cell is td:nth-child(2).
+   行的奇偶用 JS 设的 .even 类（按过滤结果里的绝对行号），不能用 tr:nth-child——
+   虚拟滚动的占位行和滑动窗口会把 nth-child 的奇偶搅乱。列的奇偶仍可用 nth-child。 */
+tbody tr td.lang-cell:nth-child(odd)  { background: #fafbfd; }
+tbody tr td.lang-cell:nth-child(even) { background: #ffffff; }
+tbody tr.even td.lang-cell:nth-child(odd) { background: #eef0f4; }
+tbody tr.even td.lang-cell:nth-child(even) { background: #f4f6f9; }
+
+/* 虚拟滚动的上下占位行：高度全靠 JS 设在 td 上，本身不能有边框/内边距 */
+tbody tr.virtual-spacer td { border: 0; padding: 0; height: 0; }
 
 tbody td.lang-cell { position: relative; }
 /* height:100% 让单元格在"同行别的语言列文字更长、把整行撑高"时也能填满整格
@@ -61,7 +66,6 @@ tbody td.lang-cell:has(> .cell-editor.error) { background: #fee2e2; }
 body.col-resizing { cursor: col-resize !important; user-select: none; }
 body.col-resizing textarea { pointer-events: none; }
 
-tr.hidden { display: none; }
 .empty-hint { padding: 24px; color: #6b7280; }
 
 thead th .col-head { display: flex; align-items: center; gap: 6px; }
