@@ -534,6 +534,8 @@ function buildRow(idx) {
     const ta = document.createElement("textarea");
     ta.className = "cell-editor";
     ta.rows = 1;
+    // 关掉拼写检查：多国语言文本会被当成拼错的英文画满红波浪线
+    ta.spellcheck = false;
     ta.value = value;
     ta.dataset.idx = idx;
     ta.dataset.key = entry.key;
@@ -1126,8 +1128,8 @@ function openFindReplaceModal() {
     modal.className = "modal find-replace-panel";
     modal.innerHTML = `
       <h2>查找替换 <button type="button" id="fr-close" class="icon-btn" title="关闭">×</button></h2>
-      <div class="field"><label>查找</label><input type="text" id="fr-find" autocomplete="off"></div>
-      <div class="field"><label>替换为</label><input type="text" id="fr-replace" autocomplete="off"></div>
+      <div class="field"><label>查找</label><input type="text" id="fr-find" autocomplete="off" spellcheck="false"></div>
+      <div class="field"><label>替换为</label><input type="text" id="fr-replace" autocomplete="off" spellcheck="false"></div>
       <div class="field">
         <label>语言范围</label>
         <select id="fr-lang"></select>
