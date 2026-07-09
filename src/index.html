@@ -17,8 +17,7 @@
 
 <div id="app-root">
   <header>
-    <span class="meta" id="path-display" title=""></span>
-    <div class="right">
+    <div class="toolbar">
       <button id="btn-open" type="button">打开…</button>
       <button id="btn-new" type="button" title="新建一份全新的 translations.xml">新建…</button>
       <button id="btn-export-csv" type="button">导出 CSV</button>
@@ -28,6 +27,8 @@
       <button id="btn-find-replace" type="button">查找替换</button>
       <button id="btn-check-update" type="button" title="检查是否有新版本">检查更新</button>
       <button id="btn-save" type="button" disabled title="Ctrl+S">保存</button>
+    </div>
+    <div class="right">
       <input type="text" id="filter" placeholder="过滤 key / 任意语言文本…" autocomplete="off" spellcheck="false">
       <span id="status" title=""></span>
     </div>
@@ -42,6 +43,10 @@
     </table>
     <div class="empty-hint" id="empty" style="display:none">无匹配条目</div>
   </div>
+
+  <footer id="status-bar">
+    <span class="meta" id="path-display" title=""></span>
+  </footer>
 </div>
 
 <div id="update-toast"></div>

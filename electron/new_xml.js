@@ -37,12 +37,35 @@ function createNewXml(xmlPath) {
     throw new Error(`文件已存在：${xmlPath}\n「新建」不会覆盖已有文件，请改用「选择 translations.xml」打开它，或换一个位置新建。`);
   }
   const dir = path.dirname(xmlPath);
-  fs.writeFileSync(xmlPath, TEMPLATE, "utf8");
+  // 中途任何一步失败（典型：Windows 拒绝往 C 盘根目录/Program Files 等
+  // 受保护位置写文件）都回滚已创建的文件，否则残留的半成品 XML 会让
+  // 用户重试时一直撞上上面的「文件已存在」。
+  const created = [];
+  try {
+    fs.writeFileSync(xmlPath, TEMPLATE, "utf8");
+    created.push(xmlPath);
 
-  if (!xmlStore._internal.findGenMultilang(xmlPath)) {
-    fs.writeFileSync(path.join(dir, "gen_multilang.py"), MARKER_CONTENT, "utf8");
+    if (!xmlStore._internal.findGenMultilang(xmlPath)) {
+      const marker = path.join(dir, "gen_multilang.py");
+      fs.writeFileSync(marker, MARKER_CONTENT, "utf8");
+      created.push(marker);
+    }
+    return xmlStore.regenMultilang(xmlPath);
+  } catch (err) {
+    for (const f of created.reverse()) {
+      try { fs.unlinkSync(f); } catch (_e) { /* 回滚尽力而为 */ }
+    }
+    // xml_store 的 writeFile 会把底层错误包一层（丢失 err.code），所以再兜一遍报错文本
+    if (err && (err.code === "EPERM" || err.code === "EACCES" ||
+        /\b(EPERM|EACCES)\b/.test(String(err.message || "")))) {
+      throw new Error(
+        `没有权限在该位置写入文件（${err.path || dir}）。\n` +
+        "Windows 不允许普通程序直接写 C 盘根目录、Program Files 等系统目录，" +
+        "请换一个有写权限的位置（如桌面、文档或你的工程目录）重新新建。"
+      );
+    }
+    throw err;
   }
-  return xmlStore.regenMultilang(xmlPath);
 }
 
 module.exports = { createNewXml, _internal: { TEMPLATE } };
