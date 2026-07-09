@@ -150,6 +150,12 @@ function registerHandlers() {
   // 自动更新：状态经 IPC 推给页面右下角提示条（见 src/main.js 的 update-toast 部分），
   // 不用原生 dialog——那会打断用户正在做的事。
   handle("updater_get_status", () => updater.getUpdaterStatus());
+  // 手动检查（interactive=true 会额外推"检查中/已是最新/出错"这几个一次性状态）；
+  // 不 await：结果经 updater:status 推送给提示条，命令本身立即返回不卡按钮
+  handle("updater_check", () => {
+    updater.checkForUpdate(true).catch(() => {});
+    return null;
+  });
   handle("updater_open_download", () => updater.openDownloadPage());
   // 「立即重启」：走 mainWindow.close() 而不是直接 app.quit()，让关窗保护照常拦截
   // 未保存的脏数据；窗口真正关掉后 window-all-closed → app.quit()，

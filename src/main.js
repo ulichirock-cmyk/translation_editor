@@ -1447,6 +1447,13 @@ document.addEventListener("keydown", e => {
   const onStatus = s => { if (s && s.version) lastVersion = s.version; render(s); };
   updater.getStatus().then(s => { if (s) onStatus(s); }).catch(() => {});
   updater.onStatus(onStatus);
+
+  // 手动检查更新：结果（检查中/已是最新/发现新版/出错）经 updater:status 推回提示条，
+  // 按钮本身不等待。开发模式（未打包）下主进程照样能查，只是不会自动轮询。
+  const checkBtn = document.getElementById("btn-check-update");
+  if (checkBtn && updater.check) {
+    checkBtn.addEventListener("click", () => { updater.check().catch(() => {}); });
+  }
 })();
 
 startup().catch(console.error);
