@@ -115,9 +115,7 @@ let currentPath = null;
 let lastKnownMtime = null;
 let DUP_KEYS = new Set();
 
-function dirtyCells() {
-  return Array.from(body.querySelectorAll("textarea.cell-editor.dirty"));
-}
+// 脏格集合即 EDITS 映射本身（见虚拟滚动渲染一节）；dirtyCount() 定义在那里。
 
 // #status 平时是 display:none，只有 error/info class 才会显示；之前 setOk() 只把文字塞进
 // 没人看的 title 属性，导致"保存成功""已导出"之类的提示实际上从来没显示给用户看过。
@@ -269,7 +267,7 @@ function stopMtimePolling() {
 }
 
 async function reloadAfterExternalChange() {
-  if (dirtyCells().length > 0) {
+  if (dirtyCount() > 0) {
     const ok = await confirmDialog("重新加载", "当前有未保存的修改，重新加载会丢弃这些修改，确定继续吗？");
     if (!ok) return;
   }
@@ -402,7 +400,7 @@ function startResize(e, handle, colId) {
     col.style.width = w + "px";
     if (!pending) {
       pending = true;
-      requestAnimationFrame(() => { pending = false; autosizeVisible(); });
+      requestAnimationFrame(() => { pending = false; autosizeRendered(); });
     }
   }
   function up() {
@@ -414,7 +412,7 @@ function startResize(e, handle, colId) {
     const widths = loadColWidths();
     widths[colId] = Math.round(parseFloat(col.style.width));
     saveColWidths(widths);
-    autosizeVisible();
+    autosizeRendered();
   }
   document.addEventListener("pointermove", move);
   document.addEventListener("pointerup", up);
@@ -451,37 +449,56 @@ function buildHead() {
   }
 }
 
-// Lazy autosize: only textareas currently on (or near) screen pay the
-// scrollHeight/layout cost. This keeps initial paint cheap on big tables.
-let _autosizeObserver = null;
-const _visibleTAs = new Set();
+// ───────── 虚拟滚动渲染 ─────────
+// 词条多时（几千行 × 每行 N 个 textarea）全量真实 DOM 会让滚动明显卡顿：每帧都要对
+// 几万个节点做布局/绘制，IntersectionObserver 驱动的懒 autosize 又在滚动中反复触发
+// 全表回流。这里改为只渲染视口上下各 OVERSCAN px 内的行，其余行用上下两个占位行
+// （spacer）把滚动条撑到正确长度；行高不齐（autosize 撑高）所以维护一份逐行实测
+// 高度缓存，未渲染过的行按估计值参与计算，首次渲染后校正。
+// 行随时会被回收重建，编辑状态因此不能再挂在 DOM class 上——以 EDITS 映射为唯一
+// 事实来源（cellId -> 当前值，仅存与原值不同的格，即"脏格"集合本身）。
 
-function _ensureAutosizeObserver() {
-  if (_autosizeObserver) return _autosizeObserver;
-  const root = document.querySelector(".table-wrap");
-  _autosizeObserver = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      if (e.isIntersecting) {
-        if (!_visibleTAs.has(e.target)) {
-          _visibleTAs.add(e.target);
-          autosize(e.target);
-        }
-      } else {
-        _visibleTAs.delete(e.target);
-      }
-    }
-  }, { root, rootMargin: "400px 0px" });
-  return _autosizeObserver;
+const tableWrap = document.querySelector(".table-wrap");
+const ROW_ESTIMATE = 37;   // 未实测行的估计高度：36px min-height + 1px 边框
+const OVERSCAN = 400;      // 视口上下多渲染的像素余量
+
+let ENTRIES = [];              // 当前文件的全部条目 [{key, values}]，保存成功后原地更新
+const EDITS = new Map();       // cellId -> 当前值（与原值不同才存在）
+const ERROR_CELLS = new Set(); // 保存失败后标红的格
+const SAVED_FLASH = new Map(); // 保存成功后短暂标绿的格 cellId -> timer
+let VISIBLE = [];              // 通过当前过滤词的条目下标（按文件顺序）
+let FILTER_Q = "";
+let rowHeights = [];           // 逐条目行高缓存（px）
+const renderedRows = new Map(); // 条目下标 -> 当前挂在 DOM 上的 <tr>
+let topSpacer = null, bottomSpacer = null;
+
+const cellId = (idx, code) => idx + "\u0000" + code;
+function originalValue(idx, code) { return ENTRIES[idx].values[code] || ""; }
+function cellValue(idx, code) {
+  const id = cellId(idx, code);
+  return EDITS.has(id) ? EDITS.get(id) : originalValue(idx, code);
+}
+function dirtyCount() { return EDITS.size; }
+
+function findRenderedTA(idx, code) {
+  const tr = renderedRows.get(idx);
+  return tr ? tr.querySelector(`textarea[data-code="${CSS.escape(code)}"]`) : null;
 }
 
-function _resetAutosizeObserver() {
-  if (_autosizeObserver) _autosizeObserver.disconnect();
-  _visibleTAs.clear();
-  _autosizeObserver = null;
-}
-
-function buildRow(entry, newTAs) {
+function makeSpacer() {
   const tr = document.createElement("tr");
+  tr.className = "virtual-spacer";
+  const td = document.createElement("td");
+  td.colSpan = LANGS.length + 1;
+  tr.appendChild(td);
+  return tr;
+}
+
+function buildRow(idx) {
+  const entry = ENTRIES[idx];
+  const q = FILTER_Q;
+  const tr = document.createElement("tr");
+  tr.dataset.idx = idx;
   tr.dataset.key = entry.key;
   if (DUP_KEYS.has(entry.key)) tr.classList.add("dup-key");
   const tdKey = document.createElement("td");
@@ -490,7 +507,7 @@ function buildRow(entry, newTAs) {
   keyInner.className = "key-cell-inner";
   const keySpan = document.createElement("span");
   keySpan.className = "key-text";
-  keySpan.textContent = entry.key;
+  keySpan.innerHTML = highlightHtml(entry.key, q);
   keySpan.title = entry.key;
   keyInner.appendChild(keySpan);
   const delBtn = document.createElement("button");
@@ -506,55 +523,154 @@ function buildRow(entry, newTAs) {
   for (const lang of LANGS) {
     const td = document.createElement("td");
     td.className = "lang-cell";
+    const id = cellId(idx, lang.code);
+    const value = cellValue(idx, lang.code);
+    if (q) {
+      const hl = document.createElement("div");
+      hl.className = "cell-highlight";
+      hl.innerHTML = highlightHtml(value, q);
+      td.appendChild(hl);
+    }
     const ta = document.createElement("textarea");
     ta.className = "cell-editor";
     ta.rows = 1;
-    ta.value = entry.values[lang.code] || "";
+    ta.value = value;
+    ta.dataset.idx = idx;
     ta.dataset.key = entry.key;
     ta.dataset.code = lang.code;
-    ta.dataset.original = ta.value;
+    if (EDITS.has(id)) ta.classList.add("dirty");
+    if (ERROR_CELLS.has(id)) ta.classList.add("error");
+    if (SAVED_FLASH.has(id)) ta.classList.add("saved");
     ta.addEventListener("input", onInput);
     ta.addEventListener("blur", onBlur);
     ta.addEventListener("keydown", onKeyDown);
     td.appendChild(ta);
     tr.appendChild(td);
-    newTAs.push(ta);
   }
   return tr;
 }
 
-function buildBody(entries) {
-  body.innerHTML = "";
-  _resetAutosizeObserver();
-  const obs = _ensureAutosizeObserver();
+// 计算当前应渲染的行窗口并同步 DOM。已在位的行用游标法原地保留（不 remove/re-append，
+// 否则每次滚动都会打断正在输入的焦点/选区）；新建行统一批量 autosize + 实测行高，
+// 读写各自集中，整个批次只触发两次回流，而不是每格一次。
+function updateVirtual() {
+  if (!topSpacer) return;
+  const scrollTop = tableWrap.scrollTop;
+  const viewH = tableWrap.clientHeight;
+  const headH = headRow.offsetHeight;
+  const target = scrollTop - headH;
 
-  const CHUNK = 80;
-  let i = 0;
-  function renderChunk() {
-    const frag = document.createDocumentFragment();
-    const newTAs = [];
-    const end = Math.min(i + CHUNK, entries.length);
-    for (; i < end; i++) {
-      frag.appendChild(buildRow(entries[i], newTAs));
-    }
-    body.appendChild(frag);
-    for (const ta of newTAs) obs.observe(ta);
-    applyFilter();
-    if (i < entries.length) {
-      requestAnimationFrame(renderChunk);
-    }
+  let start = 0;
+  let topPad = 0;
+  while (start < VISIBLE.length && topPad + rowHeights[VISIBLE[start]] < target - OVERSCAN) {
+    topPad += rowHeights[VISIBLE[start]];
+    start++;
   }
-  renderChunk();
+  let end = start;
+  let y = topPad;
+  while (end < VISIBLE.length && y < target + viewH + OVERSCAN) {
+    y += rowHeights[VISIBLE[end]];
+    end++;
+  }
+  let bottomPad = 0;
+  for (let k = end; k < VISIBLE.length; k++) bottomPad += rowHeights[VISIBLE[k]];
+
+  const needed = new Set();
+  for (let j = start; j < end; j++) needed.add(VISIBLE[j]);
+
+  for (const [idx, tr] of renderedRows) {
+    if (!needed.has(idx)) { tr.remove(); renderedRows.delete(idx); }
+  }
+
+  const newTRs = [];
+  let cursor = topSpacer.nextSibling;
+  for (let j = start; j < end; j++) {
+    const idx = VISIBLE[j];
+    let tr = renderedRows.get(idx);
+    if (tr) {
+      if (tr === cursor) cursor = cursor.nextSibling;
+      else body.insertBefore(tr, cursor);
+    } else {
+      tr = buildRow(idx);
+      renderedRows.set(idx, tr);
+      body.insertBefore(tr, cursor);
+      newTRs.push(tr);
+    }
+    // 斑马纹按过滤结果里的绝对行号定，不随窗口滑动跳变（CSS 不能再用 nth-child，
+    // spacer 行会把奇偶数搅乱）
+    tr.classList.toggle("even", j % 2 === 1);
+  }
+
+  topSpacer.firstChild.style.height = topPad + "px";
+  bottomSpacer.firstChild.style.height = bottomPad + "px";
+
+  if (newTRs.length) {
+    const tas = [];
+    for (const tr of newTRs) tas.push(...tr.querySelectorAll("textarea.cell-editor"));
+    autosizeBatch(tas);
+    for (const tr of newTRs) {
+      const idx = Number(tr.dataset.idx);
+      const h = tr.offsetHeight;
+      if (h) rowHeights[idx] = h;
+    }
+    // 窗口内行高的校正只影响后续滚动计算，spacer 高度由窗口外的行决定，无需重算
+  }
 }
 
-function autosizeVisible() {
-  for (const ta of _visibleTAs) autosize(ta);
+// 丢弃全部已渲染行、按当前数据/过滤词重建窗口（数据或高亮批量变化后调用）
+function rerenderAll() {
+  for (const tr of renderedRows.values()) tr.remove();
+  renderedRows.clear();
+  updateVirtual();
+}
+
+function buildBody(entries) {
+  ENTRIES = entries;
+  EDITS.clear();
+  ERROR_CELLS.clear();
+  for (const t of SAVED_FLASH.values()) clearTimeout(t);
+  SAVED_FLASH.clear();
+  rowHeights = new Array(entries.length).fill(ROW_ESTIMATE);
+  renderedRows.clear();
+  body.innerHTML = "";
+  topSpacer = makeSpacer();
+  bottomSpacer = makeSpacer();
+  body.appendChild(topSpacer);
+  body.appendChild(bottomSpacer);
+  applyFilter();
+}
+
+let _scrollPending = false;
+tableWrap.addEventListener("scroll", () => {
+  if (_scrollPending) return;
+  _scrollPending = true;
+  requestAnimationFrame(() => { _scrollPending = false; updateVirtual(); });
+});
+
+// 批量 autosize：先统一清零、一次性读完全部 scrollHeight、再统一写回，
+// 避免"写一个读一个"的布局抖动（那是滚动卡顿的另一半根源）。
+function autosizeBatch(tas) {
+  if (!tas.length) return;
+  for (const ta of tas) ta.style.minHeight = "0px";
+  const hs = [];
+  for (const ta of tas) hs.push(ta.scrollHeight);
+  for (let i = 0; i < tas.length; i++) tas[i].style.minHeight = Math.max(36, hs[i]) + "px";
+}
+
+// 列宽/窗口尺寸变化后：只处理当前渲染在 DOM 上的行；未渲染行的高度缓存会过时，
+// 但它们重新进入窗口时会重测校正，误差只影响滚动条的瞬时比例。
+function autosizeRendered() {
+  const tas = [];
+  for (const tr of renderedRows.values()) tas.push(...tr.querySelectorAll("textarea.cell-editor"));
+  autosizeBatch(tas);
+  for (const [idx, tr] of renderedRows) rowHeights[idx] = tr.offsetHeight || rowHeights[idx];
 }
 
 let resizeTimer = null;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(autosizeVisible, 80);
+  // 视口变大时渲染窗口也要跟着扩，否则下方会露出 spacer 空白
+  resizeTimer = setTimeout(() => { autosizeRendered(); updateVirtual(); }, 80);
 });
 
 // 设 min-height 而不是 height：内容需要的高度优先保证不裁切/不出现滚动条，
@@ -567,17 +683,28 @@ function autosize(ta) {
 
 function onInput(e) {
   const ta = e.target;
+  const idx = Number(ta.dataset.idx);
+  const code = ta.dataset.code;
+  const id = cellId(idx, code);
   ta.classList.remove("saved", "error");
-  if (ta.value !== ta.dataset.original) ta.classList.add("dirty");
-  else ta.classList.remove("dirty");
+  ERROR_CELLS.delete(id);
+  if (SAVED_FLASH.has(id)) { clearTimeout(SAVED_FLASH.get(id)); SAVED_FLASH.delete(id); }
+  if (ta.value !== originalValue(idx, code)) {
+    EDITS.set(id, ta.value);
+    ta.classList.add("dirty");
+  } else {
+    EDITS.delete(id);
+    ta.classList.remove("dirty");
+  }
   autosize(ta);
+  const tr = renderedRows.get(idx);
+  if (tr) rowHeights[idx] = tr.offsetHeight || rowHeights[idx];
   updateSaveButton();
 
   // 编辑内容时同步刷新这一格已有的搜索高亮（比如查找替换写入新值之后）。
-  const q = filterEl.value.trim().toLowerCase();
-  if (q) {
+  if (FILTER_Q) {
     const hl = ta.closest("td.lang-cell")?.querySelector(".cell-highlight");
-    if (hl) hl.innerHTML = highlightHtml(ta.value, q);
+    if (hl) hl.innerHTML = highlightHtml(ta.value, FILTER_Q);
   }
 }
 
@@ -591,9 +718,15 @@ function onKeyDown(e) {
   // Esc reverts
   if (e.key === "Escape") {
     const ta = e.target;
-    ta.value = ta.dataset.original;
+    const idx = Number(ta.dataset.idx);
+    const code = ta.dataset.code;
+    ta.value = originalValue(idx, code);
+    EDITS.delete(cellId(idx, code));
+    ERROR_CELLS.delete(cellId(idx, code));
     ta.classList.remove("dirty", "saved", "error");
     autosize(ta);
+    const tr = renderedRows.get(idx);
+    if (tr) rowHeights[idx] = tr.offsetHeight || rowHeights[idx];
     updateSaveButton();
     ta.blur();
   }
@@ -604,8 +737,7 @@ function onBlur(e) {
 }
 
 async function saveAll() {
-  const dirty = dirtyCells();
-  if (dirty.length === 0) return;
+  if (EDITS.size === 0) return;
 
   // 保存前比对 mtime：轮询间隔有 4 秒窗口期，点保存这一刻再确认一次，
   // 避免不知不觉盖掉外部程序（比如 svn update）刚落地的改动。
@@ -622,31 +754,49 @@ async function saveAll() {
 
   // 一次性批量保存，而不是每个脏格各自读全文件-改-写全文件；任意一条失败就整体不写入，
   // 不会留下"保存了一半"的文件状态。
-  const edits = dirty.map(ta => ({ key: ta.dataset.key, code: ta.dataset.code, value: ta.value }));
+  const dirty = [];
+  for (const [id, value] of EDITS) {
+    const [idxStr, code] = id.split("\u0000");
+    dirty.push({ id, idx: Number(idxStr), key: ENTRIES[Number(idxStr)].key, code, value });
+  }
+  const edits = dirty.map(d => ({ key: d.key, code: d.code, value: d.value }));
   try {
     await invoke("save_cells", { path: currentPath, edits });
   } catch (err) {
     const msg = errMsg(err);
     const m = msg.match(/key='([^']+)'/);
+    for (const d of dirty) {
+      if (m && d.key !== m[1]) continue;
+      ERROR_CELLS.add(d.id);
+      const ta = findRenderedTA(d.idx, d.code);
+      if (ta) ta.classList.add("error");
+    }
     if (m) {
-      for (const ta of dirty) {
-        if (ta.dataset.key === m[1]) ta.classList.add("error");
-      }
       setFailed(`保存失败，key "${m[1]}" 出错，本次 ${dirty.length} 处修改均未写入：${msg}`);
     } else {
-      dirty.forEach(ta => ta.classList.add("error"));
       setFailed(`保存失败，本次 ${dirty.length} 处修改均未写入：${msg}`);
     }
     updateSaveButton();
     return;
   }
 
-  for (const ta of dirty) {
-    ta.dataset.original = ta.value;
-    ta.classList.remove("dirty", "error");
-    ta.classList.add("saved");
-    setTimeout(() => ta.classList.remove("saved"), 1200);
+  // 成功：新值落进数据模型（成为新的"原值"），脏格转为短暂的"已保存"绿闪。
+  // 行可能已被虚拟滚动回收，所以绿闪状态记在 SAVED_FLASH 里，重建行时照样能带上。
+  for (const d of dirty) {
+    ENTRIES[d.idx].values[d.code] = d.value;
+    const ta = findRenderedTA(d.idx, d.code);
+    if (ta) {
+      ta.classList.remove("dirty", "error");
+      ta.classList.add("saved");
+    }
+    SAVED_FLASH.set(d.id, setTimeout(() => {
+      SAVED_FLASH.delete(d.id);
+      const t = findRenderedTA(d.idx, d.code);
+      if (t) t.classList.remove("saved");
+    }, 1200));
   }
+  EDITS.clear();
+  ERROR_CELLS.clear();
 
   // 更新已知 mtime，避免下一次轮询把我们自己刚写的这次保存误判成"外部改动"。
   try {
@@ -657,7 +807,7 @@ async function saveAll() {
 }
 
 function updateSaveButton() {
-  const count = dirtyCells().length;
+  const count = dirtyCount();
   const btn = document.getElementById("btn-save");
   btn.disabled = count === 0;
   btn.textContent = count > 0 ? `保存 (${count})` : "保存";
@@ -665,49 +815,24 @@ function updateSaveButton() {
   window.native.setDirty(count > 0);
 }
 
+// 过滤只扫数据模型，不碰 DOM（几千行也只是字符串遍历），结果重建虚拟窗口。
+// 匹配高亮不再有独立的刷新函数：buildRow 按当前 FILTER_Q 生成 key 列 <mark> 和
+// textarea 背后的 .cell-highlight 叠层，rerenderAll 让所有在屏行重走 buildRow。
 function applyFilter() {
-  const q = filterEl.value.trim().toLowerCase();
-  let visible = 0;
-  for (const tr of body.children) {
-    let match;
-    if (!q) {
-      match = true;
-    } else {
-      match = tr.dataset.key.toLowerCase().includes(q);
-      if (!match) {
-        for (const ta of tr.querySelectorAll("textarea")) {
-          if (ta.value.toLowerCase().includes(q)) { match = true; break; }
-        }
+  FILTER_Q = filterEl.value.trim().toLowerCase();
+  const q = FILTER_Q;
+  VISIBLE = [];
+  for (let i = 0; i < ENTRIES.length; i++) {
+    let match = !q || ENTRIES[i].key.toLowerCase().includes(q);
+    if (!match) {
+      for (const lang of LANGS) {
+        if (cellValue(i, lang.code).toLowerCase().includes(q)) { match = true; break; }
       }
     }
-    tr.classList.toggle("hidden", !match);
-    if (match) visible++;
-    updateRowHighlight(tr, q);
+    if (match) VISIBLE.push(i);
   }
-  emptyEl.style.display = visible === 0 ? "block" : "none";
-}
-
-// 高亮匹配文字：key 列直接改 innerHTML；语言列的 textarea 不能放富文本，
-// 所以在它背后叠一层同款排版的 div，只画 <mark> 的高亮背景，textarea 本身
-// 背景透明、文字仍在最上层可编辑——不影响正常输入/光标/选区。
-function updateRowHighlight(tr, q) {
-  const keySpan = tr.querySelector(".key-text");
-  if (keySpan) keySpan.innerHTML = highlightHtml(tr.dataset.key, q);
-
-  for (const td of tr.querySelectorAll("td.lang-cell")) {
-    const ta = td.querySelector("textarea.cell-editor");
-    let hl = td.querySelector(".cell-highlight");
-    if (!q) {
-      if (hl) hl.remove();
-      continue;
-    }
-    if (!hl) {
-      hl = document.createElement("div");
-      hl.className = "cell-highlight";
-      td.insertBefore(hl, ta);
-    }
-    hl.innerHTML = highlightHtml(ta.value, q);
-  }
+  emptyEl.style.display = VISIBLE.length === 0 ? "block" : "none";
+  rerenderAll();
 }
 
 filterEl.addEventListener("input", applyFilter);
@@ -785,7 +910,7 @@ function openModal(title, fields, onSubmit) {
 // ───────── operations ─────────
 
 async function addEntry() {
-  if (dirtyCells().length > 0) {
+  if (dirtyCount() > 0) {
     const ok = await confirmDialog("未保存的修改", "当前有未保存的修改，新增条目会重新加载表格，未保存的修改将会丢失，确定继续吗？");
     if (!ok) return;
   }
@@ -806,7 +931,7 @@ async function addEntry() {
 
 async function deleteEntry(key) {
   let message = `删除条目 "${key}"？\n此操作不可撤销。`;
-  if (dirtyCells().length > 0) {
+  if (dirtyCount() > 0) {
     message += "\n\n当前还有未保存的修改，删除后表格会重新加载，这些修改也会一并丢失。";
   }
   const ok = await confirmDialog("删除条目", message);
@@ -933,7 +1058,7 @@ function openAddLanguageModal() {
 }
 
 async function addLanguage() {
-  if (dirtyCells().length > 0) {
+  if (dirtyCount() > 0) {
     const ok = await confirmDialog("未保存的修改", "当前有未保存的修改，新增语言会重新加载表格，未保存的修改将会丢失，确定继续吗？");
     if (!ok) return;
   }
@@ -946,7 +1071,7 @@ async function addLanguage() {
 
 async function deleteLanguage(lang) {
   let message = `删除语言 "${lang.code} · ${lang.name}"？\n所有条目里的 <${lang.code}> 标签都会被移除，且后续语言 id 会重新顺序排列。\n请记得同步更新 common_data.h 中 GetCurrentFontType() 的字体映射。`;
-  if (dirtyCells().length > 0) {
+  if (dirtyCount() > 0) {
     message += "\n\n当前还有未保存的修改，删除后表格会重新加载，这些修改也会一并丢失。";
   }
   const ok = await confirmDialog("删除语言", message);
@@ -1059,21 +1184,22 @@ function openFindReplaceModal() {
       const onlyFiltered = filteredCheck.checked;
       const caseSensitive = caseCheck.checked;
 
-      const rows = onlyFiltered
-        ? Array.from(body.children).filter(tr => !tr.classList.contains("hidden"))
-        : Array.from(body.children);
+      // 直接改数据模型（EDITS），不遍历 DOM——虚拟滚动下屏幕外的行根本没有 DOM，
+      // 改完统一重建可见窗口即可。
+      const indices = onlyFiltered ? VISIBLE.slice() : ENTRIES.map((_, i) => i);
+      const codes = langScope ? [langScope] : LANGS.map(l => l.code);
 
       let occCount = 0;
       let cellCount = 0;
-      for (const tr of rows) {
-        const tas = langScope
-          ? Array.from(tr.querySelectorAll(`textarea[data-code="${CSS.escape(langScope)}"]`))
-          : Array.from(tr.querySelectorAll("textarea.cell-editor"));
-        for (const ta of tas) {
-          const { text, count } = replaceAllOccurrences(ta.value, find, replace, caseSensitive);
+      for (const idx of indices) {
+        for (const code of codes) {
+          const cur = cellValue(idx, code);
+          const { text, count } = replaceAllOccurrences(cur, find, replace, caseSensitive);
           if (count > 0) {
-            ta.value = text;
-            ta.dispatchEvent(new Event("input"));
+            const id = cellId(idx, code);
+            if (text !== originalValue(idx, code)) EDITS.set(id, text);
+            else EDITS.delete(id);
+            ERROR_CELLS.delete(id);
             occCount += count;
             cellCount++;
           }
@@ -1083,6 +1209,8 @@ function openFindReplaceModal() {
         errEl.textContent = "没有找到匹配内容";
         return;
       }
+      updateSaveButton();
+      rerenderAll();
       close({ occCount, cellCount });
     });
   });
@@ -1173,7 +1301,7 @@ async function importCsv() {
   }
   if (!picked) return;
 
-  if (dirtyCells().length > 0) {
+  if (dirtyCount() > 0) {
     const ok = await confirmDialog("导入 CSV", "当前有未保存的修改，导入 CSV 会重新加载表格，未保存的修改将会丢失，确定继续吗？");
     if (!ok) return;
   }
